@@ -140,6 +140,4 @@ docs/                      # ekran görüntüleri
 - **P2P katmanı** (STUN/UDP) temel olarak mevcuttur; şu an trafik TLS'li broker üzerinden akar.
 - Herkese açık broker'lar kesinti yapabilir veya hız sınırı uygulayabilir.
 
-## Lisans
 
-Henüz bir lisans seçilmedi. Paylaşmak istiyorsanız `LICENSE` dosyası ekleyin (ör. MIT).
