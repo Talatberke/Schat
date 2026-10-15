@@ -70,6 +70,9 @@ class _Base:
         self._tokens_lock = threading.Lock()
         self.is_honeypot = False  # tuzak (decoy) oda bayrağı
         self.on_message: Optional[Callable[[str, str, bool], None]] = None
+        self.on_image: Optional[Callable[[str, str, str], None]] = None  # sender, b64, caption
+        self.on_edit: Optional[Callable[[str, str, str], None]] = None  # sender, msg_id, new_text
+        self.on_delete: Optional[Callable[[str, str], None]] = None  # sender, msg_id
         self.on_peer_left: Optional[Callable[[str], None]] = None
         self.on_sas: Optional[Callable[[str], None]] = None
         self.members: Dict[str, Dict[str, Any]] = {}
@@ -176,6 +179,124 @@ class _Base:
         if self.channel is not None:
             self.channel.publish(self.data_topic, env)
 
+    def send_image(self, image_b64: str, caption: str = "",
+                   w: int = 0, h: int = 0):
+        """Fotoğrafı grup anahtarıyla yayınla (Host ve Client ortak).
+
+        ``image_b64``: ``media.prepare_image`` çıktısı olmalıdır.
+        Başarıda mesaj kimliği (``msg_id``) döner, başarısızlıkta ``False``.
+        Dönüşün truthy olması eski ``if sent:`` kontrolleriyle uyumludur.
+        """
+        room_key = getattr(self, "room_key", None)
+        if room_key is None:
+            self._status("Henüz bağlı değilsin")
+            return False
+        try:
+            payload = messages.make_image_payload(
+                self.nickname, image_b64, caption, w, h)
+        except ValueError as exc:
+            self._status(str(exc))
+            return False
+        if not self.rate_limiter.allow():
+            self._status("Çok hızlı mesaj gönderiyorsunuz (Rate limit), lütfen bekleyin.")
+            return False
+        self._send_data(payload, room_key)
+        try:
+            return json.loads(payload).get("msg_id") or True
+        except Exception:
+            return True
+
+    def send_edit(self, msg_id: str, new_text: str) -> bool:
+        """Kendi mesajında düzenleme yayınla (yalnızca sahibi çağırmalı)."""
+        room_key = getattr(self, "room_key", None)
+        if room_key is None:
+            self._status("Henüz bağlı değilsin")
+            return False
+        try:
+            payload = messages.make_edit_payload(self.nickname, msg_id, new_text)
+        except ValueError as exc:
+            self._status(str(exc))
+            return False
+        if not self.rate_limiter.allow():
+            self._status("Çok hızlı mesaj gönderiyorsunuz (Rate limit), lütfen bekleyin.")
+            return False
+        self._send_data(payload, room_key)
+        return True
+
+    def send_delete(self, msg_id: str) -> bool:
+        """Kendi mesajında silme yayınla (yalnızca sahibi çağırmalı)."""
+        room_key = getattr(self, "room_key", None)
+        if room_key is None:
+            self._status("Henüz bağlı değilsin")
+            return False
+        if not msg_id:
+            return False
+        if not self.rate_limiter.allow():
+            self._status("Çok hızlı mesaj gönderiyorsunuz (Rate limit), lütfen bekleyin.")
+            return False
+        try:
+            payload = messages.make_delete_payload(self.nickname, msg_id)
+        except ValueError as exc:
+            self._status(str(exc))
+            return False
+        self._send_data(payload, room_key)
+        return True
+
+    def _emit_group_payload(self, payload: messages.ChatPayload) -> None:
+        """Çözülmüş grup yükünü doğru callback'e yönlendir.
+
+        Metin → ``on_message``, fotoğraf → ``on_image`` (yoksa metin
+        yedeği ``"[fotoğraf] <açıklama>"`` olarak ``on_message``'e düşer),
+        düzenleme → ``on_edit``, silme → ``on_delete``.
+
+        ``on_message``/``on_image`` eski 3-arg imzayla da çağrılabilir:
+        önce ``msg_id``'li 4-arg denenir, ``TypeError``'da 3-arg'a düşülür.
+        Böylece eski testler ve harici dinleyiciler kırılmaz.
+        """
+        try:
+            kind = payload.kind
+            if kind == messages.INNER_IMAGE:
+                mid = payload.msg_id or ""
+                if self.on_image is not None:
+                    try:
+                        self.on_image(payload.sender, payload.image,
+                                      payload.caption or "", mid)
+                    except TypeError:
+                        self.on_image(payload.sender, payload.image,
+                                      payload.caption or "")
+                elif self.on_message is not None:
+                    fallback = ("[fotoğraf]" +
+                                (f" {payload.caption}" if payload.caption else ""))
+                    self._call_message(payload.sender, fallback, False, mid)
+            elif kind == messages.INNER_EDIT:
+                if self.on_edit is not None:
+                    self.on_edit(payload.sender, payload.msg_id or "",
+                                 payload.text or "")
+                elif self.on_message is not None:
+                    self._call_message(payload.sender, payload.text or "",
+                                       False, payload.msg_id or "")
+            elif kind == messages.INNER_DELETE:
+                if self.on_delete is not None:
+                    self.on_delete(payload.sender, payload.msg_id or "")
+            elif self.on_message is not None:
+                is_system = payload.sender == "sistem"
+                text = payload.text
+                self._call_message(payload.sender, text, is_system,
+                                   payload.msg_id or "")
+        except Exception:
+            logger.debug("grup yükü callback hatası", exc_info=True)
+
+    def _call_message(self, sender: str, text: str, system: bool,
+                      msg_id: str = "") -> None:
+        """``on_message``'i msg_id uyumlu çağır (eski 3-arg'e geri düşer)."""
+        cb = self.on_message
+        if cb is None:
+            return
+        try:
+            cb(sender, text, system, msg_id)
+        except TypeError:
+            cb(sender, text, system)
+
     def _decrypt_data(self, env: Dict[str, Any], key: bytes
                       ) -> Optional[Tuple[messages.ChatPayload, bytes]]:
         """DATA zarfını çöz + Ed25519 imzasını doğrula.
@@ -198,12 +319,27 @@ class _Base:
             return None
         try:
             data = json.loads(plain.decode("utf-8"))
-            payload = messages.ChatPayload(**data)
+            payload = messages.parse_chat_payload(data)
         except Exception:
             return None
         # gelen metni de temizle (uzunluk / kontrol karakteri savunması)
         if payload.kind == messages.INNER_CHAT:
             payload.text = messages.sanitize_text(payload.text)
+        elif payload.kind == messages.INNER_EDIT:
+            if not payload.msg_id:
+                return None
+            payload.text = messages.sanitize_text(payload.text)
+            if not payload.text:
+                return None
+        elif payload.kind == messages.INNER_DELETE:
+            if not payload.msg_id:
+                return None
+        elif payload.kind == messages.INNER_IMAGE:
+            ok, _ = messages.validate_image_b64(payload.image)
+            if not ok:
+                return None
+            payload.caption = messages.sanitize_text(
+                payload.caption or "")[:config.IMAGE_CAPTION_MAX]
         return payload, sid
 
 
@@ -499,8 +635,12 @@ class Host(_Base):
             messages.MEMBERS, blob=crypto.b64e(blob),
             sid=crypto.b64e(self.id_pub), sig=crypto.b64e(sig)))
 
-    def send_chat(self, text: str) -> bool:
-        """Kurucunun sohbet mesajını grup anahtarıyla yayınla."""
+    def send_chat(self, text: str):
+        """Kurucunun sohbet mesajını grup anahtarıyla yayınla.
+
+        Başarıda ``msg_id`` (düzenleme/silme için kimlik) döner,
+        başarısızlıkta ``False``. Truthy kontrolü eski kodla uyumludur.
+        """
         clean_text = messages.sanitize_text(text)
         if not clean_text:
             return False
@@ -509,12 +649,19 @@ class Host(_Base):
             return False
         payload = messages.make_chat_payload(self.nickname, clean_text)
         self._send_data(payload, self.room_key)
-        return True
+        try:
+            return json.loads(payload).get("msg_id") or True
+        except Exception:
+            return True
 
     def send_typing(self) -> None:
         """Yazıyor bildirimi."""
         payload = messages.make_chat_payload(self.nickname, "", messages.INNER_TYPING)
         self._send_data(payload, self.room_key)
+
+    def leave(self) -> None:
+        """Odadan ayrıl (kurucu için = kapat)."""
+        self.stop()
 
     def stop(self) -> None:
         """Oturumu ve kanalı kapat, durum değişkenlerini ve sırları sıfırla."""
@@ -560,11 +707,7 @@ class Host(_Base):
                    for pub in self.member_pubs.values()):
             logger.warning("Üye olmayan gönderenden DATA — düşürüldü")
             return
-        if self.on_message:
-            try:
-                self.on_message(payload.sender, payload.text, False)
-            except Exception:
-                pass
+        self._emit_group_payload(payload)
 
     def _system(self, text: str) -> None:
         """Sistem mesajını da şifreli yayınla (herkes görsün)."""
@@ -821,16 +964,15 @@ class Client(_Base):
                                payload.sender)
                 return
 
-        if self.on_message:
-            try:
-                self.on_message(payload.sender, payload.text, is_system)
-            except Exception as exc:
-                logger.debug("on_message callback hatası: %s", exc)
+        self._emit_group_payload(payload)
 
     # ----- gönderim
 
-    def send_chat(self, text: str) -> bool:
-        """Sohbet mesajını grup anahtarıyla yayınla."""
+    def send_chat(self, text: str):
+        """Sohbet mesajını grup anahtarıyla yayınla.
+
+        Başarıda ``msg_id`` döner, başarısızlıkta ``False``.
+        """
         if self.room_key is None:
             self._status("Henüz bağlı değilsin")
             return False
@@ -842,7 +984,10 @@ class Client(_Base):
             return False
         payload = messages.make_chat_payload(self.nickname, clean_text)
         self._send_data(payload, self.room_key)
-        return True
+        try:
+            return json.loads(payload).get("msg_id") or True
+        except Exception:
+            return True
 
     def leave(self) -> None:
         """Odadan ayrıl (BYE yayınla)."""

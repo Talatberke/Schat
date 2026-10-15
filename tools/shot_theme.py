@@ -15,7 +15,7 @@ from secretchat.components import ChatTemplate
 
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "dark"
-    out = sys.argv[2] if len(sys.argv) > 2 else "docs/theme_dark.png"
+    out = sys.argv[2] if len(sys.argv) > 2 else "theme_preview.png"
     theme.set_theme(mode)
 
     root = tk.Tk()

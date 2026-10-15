@@ -483,28 +483,90 @@ def spacing_css() -> str:
 # ==========================================================================
 # 7. TEMA YÖNETİMİ & KALICILIK  (Persistence)
 # ==========================================================================
-def load_saved_theme() -> str:
-    """Kaydedilmiş tema tercihini oku (varsayılan: dark / Cyber-Incognito)."""
+def _read_settings() -> dict:
+    """Ayar dosyasını sözlük olarak oku (bozuksa boş sözlük)."""
     try:
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                mode = data.get("theme", "dark")
-                if mode in ("dark", "light"):
-                    return mode
+                if isinstance(data, dict):
+                    return data
     except Exception:
         pass
+    return {}
+
+
+def _write_settings(data: dict) -> None:
+    """Ayar dosyasını yaz (diğer anahtarları korur)."""
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def load_saved_theme() -> str:
+    """Kaydedilmiş tema tercihini oku (varsayılan: dark / Cyber-Incognito)."""
+    mode = _read_settings().get("theme", "dark")
+    if mode in ("dark", "light"):
+        return mode
     return "dark"
 
 
 def save_theme_preference(mode: str) -> None:
-    """Tema tercihini diske kaydet."""
+    """Tema tercihini diske kaydet (font gibi diğer anahtarları korur)."""
+    data = _read_settings()
+    data["theme"] = mode
+    _write_settings(data)
+
+
+def load_saved_font() -> str | None:
+    """Kaydedilmiş özel yazı tipi ailesini oku (yoksa None)."""
+    val = _read_settings().get("font")
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
+def save_font_preference(family: str | None) -> None:
+    """Yazı tipi tercihini kaydet (None → kaydı sil, varsayılana dön)."""
+    data = _read_settings()
+    if family:
+        data["font"] = family
+    else:
+        data.pop("font", None)
+    _write_settings(data)
+
+
+def load_saved_font_size() -> float:
+    """Kaydedilmiş yazı boyutu (mesaj puntusu, 9–18; yoksa 12)."""
+    val = _read_settings().get("font_size", 12)
+    if isinstance(val, bool):
+        return 12
+    if isinstance(val, (int, float)) and 9 <= val <= 18:
+        return round(float(val) * 2) / 2
+    return 12
+
+
+def save_font_size_preference(size: int | float) -> None:
+    """Yazı boyutu tercihini kaydet (0.5 adımlara yuvarlanır)."""
     try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump({"theme": mode}, f, indent=2)
-    except Exception:
-        pass
+        size = float(size)
+    except (TypeError, ValueError):
+        return
+    size = round(min(18.0, max(9.0, size)) * 2) / 2
+    data = _read_settings()
+    data["font_size"] = size
+    _write_settings(data)
+
+
+def set_font_family(family: str) -> str:
+    """Aktif yazı tipi ailesini değiştir ve kalıcı kaydet."""
+    global FONT_FAMILY
+    FONT_FAMILY = family
+    save_font_preference(family)
+    return family
 
 
 # ==========================================================================
@@ -647,3 +709,6 @@ def resolve_fonts(available: List[str]) -> Tuple[str, str]:
 
 # Başlangıçta kayıtlı tercihi yükle (varsayılan: Cyber-Incognito dark)
 set_theme(load_saved_theme())
+_saved_font = load_saved_font()
+if _saved_font:
+    FONT_FAMILY = _saved_font

@@ -67,3 +67,11 @@ INBOUND_BURST = 15.0           # HELLO gibi kritik zarflarda ani sel sınırı
 INBOUND_RATE = 3.0             # Saniyede yenilenen gelen-kota
 MAX_SEEN_TOKENS = 4096         # Tekrar-savunması önbelleği (mid/nonce) üst sınırı
 MAX_UI_TEXT_LINES = 3000       # Arayüz metin tamponu (satır) — bellek tavanı
+
+# ---------------------------------------------------------------- Medya (fotoğraf gönderimi)
+IMAGE_MAX_DIM = 1024           # Giden görüntünün en uzun kenarı (px)
+IMAGE_THUMB_W = 360            # Sohbet balonu önizleme genişliği (px)
+IMAGE_THUMB_H = 280            # Sohbet balonu önizleme yüksekliği (px)
+IMAGE_MAX_RAW_BYTES = 8 * 1024 * 1024   # Kabul edilen dosya boyutu (8 MB)
+IMAGE_MAX_B64_LEN = 220_000    # Sıkıştırılmış base64 üst sınırı (~165 kB ham)
+IMAGE_CAPTION_MAX = 200        # Fotoğraf altı açıklama uzunluğu

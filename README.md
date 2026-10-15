@@ -1,90 +1,57 @@
 # 🔐 SecretChat
 
-Uçtan uca şifreli (E2EE), **oda kodlu** bir masaüstü sohbet uygulaması. Modemden port açmadan,
-VPN kurmadan, farklı ağlardaki kişiler 5 haneli bir kodla aynı odada buluşur.
+Farklı şehirlerdeki / ağlardaki kullanıcıların **modemden port açmadan**, **VPN kurmadan**,
+uçtan uca şifreli (E2EE) sohbet etmesini sağlayan, koyu temalı masaüstü uygulaması.
 
-![SecretChat arayüzü](docs/theme_dark.png)
-
-> ## 🤖 Yapay Zeka ile Geliştirildi
-> Bu proje **yapay zeka kodlama asistanları** yardımıyla geliştirilmiştir: kodun büyük bölümü
-> (kripto katmanı, protokol, arayüz, testler ve bu README dahil) yapay zeka tarafından yazılmış,
-> proje sahibi tarafından yönlendirilmiş ve çalıştırılarak test edilmiştir.
->
-> ⚠️ **Güvenlik uyarısı:** Bu bir öğrenme/deneme projesidir. Kriptografi kütüphaneleri
-> (`cryptography`, `PyNaCl`) güvenilir olsa da bu protokol **bağımsız bir güvenlik denetiminden
-> geçmemiştir**. Hayati ya da yüksek hassasiyetli iletişim için Signal gibi denetlenmiş çözümleri kullanın.
+> Aktarıcı sunucular (broker) yalnızca **şifreli zarfları** taşır; mesaj içeriklerini
+> asla göremez. Kayıt kapalıyken mesajlar yalnızca RAM'de tutulur.
 
 ---
 
-## Ne işe yarar?
+## Özellikler
 
-1. Biri **Oda Kur** der, ekranda `3K7QX` gibi bir kod belirir.
-2. Kodu karşı tarafa başka bir kanaldan (telefon, mesaj) iletir.
-3. Karşı taraf takma adını yazıp kodu girer → **Katıl**.
-4. Mesajlar yalnızca iki uçta çözülebilir halde bulunur; aradaki sunucu şifreli veriden başka bir şey görmez.
-
-## Mantığı (nasıl çalışıyor?)
-
-### 1. Buluşma: herkese açık MQTT broker'ı posta kutusu gibi kullanılır
-Uygulamanın kendi sunucusu yoktur. Herkese açık TLS'li MQTT broker'ları (`broker.emqx.io`,
-`test.mosquitto.org`) üzerinde oda koduna bağlı bir *topic* açılır. Bu sayede iki tarafın da
-**dışarıdan gelen bağlantıya açık port** tutmasına gerek kalmaz; ikisi de broker'a *dışarı doğru*
-bağlanır (NAT/modem sorunu yaşanmaz). Bir broker çalışmazsa sıradakine otomatik geçilir.
-
-### 2. Güven: broker'a güvenmek gerekmez
-Broker yalnızca şifreli zarfları taşır. Kriptografi şöyle işler:
-
-```
-Katılan                                            Oda kurucusu (Host)
-  │  HELLO: geçici X25519 pub + Ed25519 kimlik pub + nonce  │
-  ├────────────────────────────────────────────────────────▶│
-  │  HELLO_BACK: host pub + ortak sırla şifreli kanıt       │
-  │◀────────────────────────────────────────────────────────┤
-  │  HB_ACK: anahtar onayı                                  │
-  ├────────────────────────────────────────────────────────▶│
-  │  MEMBER_JOIN: oda anahtarı (ECIES ile sarılı)           │
-  │◀────────────────────────────────────────────────────────┤
-  │  DATA: AES-256-GCM ile şifreli sohbet  ◀──────────────▶│
-```
-
-| Katman | Kullanılan |
+| Özellik | Nasıl |
 |---|---|
-| Anahtar anlaşması | X25519 (ECDH) |
-| Anahtar türetme | HKDF-SHA256 |
-| Mesaj şifreleme | AES-256-GCM (gizlilik + bütünlük) |
-| Grup anahtarı dağıtımı | ECIES (her üyeye ayrı, onun açık anahtarıyla sarılı) |
-| Kimlik | Ed25519 (her oturumda yeniden üretilir) |
-| Ortadaki adam kontrolü | 6 haneli **SAS kodu** — iki tarafta aynı çıkmalı |
+| Sıfır modem ayarı | TLS'li MQTT sinyal/relay kanalı (herkese açık broker'lar) + STUN/UDP P2P katmanı |
+| Oda Kur / Katıl | "Oda Kur" → 5 haneli kısa kod (örn. `3K7QX`), karşı taraf kodu yapıştırır |
+| E2EE | X25519 (ECDH) el sıkışma → HKDF-SHA256 → AES-256-GCM |
+| MITM kontrolü | 6 haneli SAS doğrulama kodu (iki tarafta aynı görünür) |
+| Grup sohbeti | Host, grup anahtarını her üyeye ECIES ile sarıp dağıtır |
+| Gizlilik | Mesajlar varsayılan RAM'de; "Geçmişi Kaydet" ile isteğe bağlı .log/.txt |
+| Gizli rumuz | Kullanıcı adı boş bırakılırsa otomatik `sıfat nesne sayı` rumuzu (örn. `mavi bulut 1923`) |
+| Fotoğraf gönderimi | Sohbet içinden JPEG/PNG/GIF seçimi, E2EE şifreli aktarım, balon içi önizleme |
+| Emoji paneli | Giriş kutusu yanında kategorili emoji seçici (açık/koyu tema uyumlu) |
+| Kopyala / Düzenle / Sil | Balona sağ tık menüsü; kendi mesajında düzenleme/silme karşı tarafa şifreli yayınlanır |
+| Yazı tipi + boyutu | ⚙ Ayarlar'dan Google Fonts bağlantısı/adıyla font indirme, 9–18 pt boyut kaydırıcısı |
+| Duyarlı arayüz | Dar pencerede sadeleşen üst bar, taşınca kayan karşılama kartı, font değişiminde bozulmayan akış |
+| Modern GUI | Tkinter, açık/koyu mod, tek pencere, tek tıkla çalışır |
 
-Önemli tasarım kararı: **oda anahtarı koddan türetilmez.** Oda kodu broker'ın göreceği topic
-adında geçtiği için koddan türetilen bir anahtar E2EE'yi anlamsız kılardı. Bunun yerine host,
-`secrets.token_bytes(32)` ile rastgele bir anahtar üretir ve yalnızca ECIES ile üyelere dağıtır.
+## Mimari
 
-### 3. Savunma katmanları
-- **Hız sınırlama (token bucket):** gönderim ve gelen trafik için; spam/DoS'u yavaşlatır.
-- **Replay koruması:** zaman damgası penceresi (±180 sn) + görülmüş `mid`/nonce önbelleği.
-- **Girdi doğrulama:** takma ad kuralları, ayrılmış adlar (`admin`, `system`…), oda kodu alfabesi
-  (MQTT `+`/`#` joker karakter enjeksiyonunu önler), mesaj uzunluğu ve kontrol karakteri temizliği.
-- **Sınırlı bellekler:** gelen kuyruk, görülmüş-token önbelleği ve arayüz metin tamponu üst sınırlıdır.
-- **Honeypot (siber tuzak):** `vault`, `admin-secrets` gibi cazip sahte oda adları / yem oda
-  kodları ve `sysadmin` gibi yem takma adlar. Bunlarla giriş deneyen oturum kara listeye alınır
-  (1 saat) ve `~/Documents/SecretChat/admin-security.log` dosyasına alarm yazılır. Arayüzde ekran
-  dışında gizli bir giriş alanı da vardır; otomasyon/bot formu doldurursa alarm tetiklenir.
-  Reddedilme mesajı, saldırgana ipucu vermemek için sıradan bir "takma ad kullanımda" hatası gibi görünür.
+```
+┌─────────────┐   şifreli zarflar   ┌──────────────────┐   şifreli zarflar   ┌─────────────┐
+│   Host GUI  │ ───────────────────▶│  MQTT broker(TLS)│───────────────────▶ │  Client GUI │
+│             │◀─────────────────── │  (aktarıcı; içerik│◀────────────────── │             │
+└─────────────┘                     │   GÖREMEZ)        │                    └─────────────┘
+     │        X25519 el sıkışma     └──────────────────┘        X25519 el sıkışma │
+     └───────────────────────────────────────────────────────────────────────────┘
+                    Ortak AES-256 anahtarı (HKDF) — broker bilmez
+```
 
-### 4. Gizlilik: varsayılan olarak iz bırakmaz
-Mesajlar yalnızca RAM'de tutulur ve çıkışta silinir. **"Geçmişi Kaydet"** işaretlenirse çözülmüş
-metin seçtiğiniz dosyaya yazılır.
+**El sıkışma akışı**
 
----
+1. **Katılan → Host:** `HELLO` — geçici X25519 pub + Ed25519 kimlik pub + nonce
+2. **Host → Katılan:** `HELLO_BACK` — host pub + nonce'un oturum anahtarıyla şifreli kanıtı
+3. **Katılan → Host:** `HB_ACK` — anahtar onayı
+4. **Host → Katılan:** `MEMBER_JOIN` — grup anahtarı, katılanın kimlik pub'ıyla ECIES sarmalı
+5. **Herkes:** `DATA` — grup anahtarıyla AES-256-GCM şifreli sohbet
 
-## Kurulum
+Katılan, nonce'u ancak host'un ECDH sırrıyla çözebildiyse doğrulama geçer; ortadaki adam
+(MITM) anahtarı değiştirirse iki tarafta görünen **SAS kodu** farklılaşır.
 
-Gereksinim: **Python 3.10+** (Tkinter ile gelir)
+## Kurulum (kaynaktan)
 
 ```bash
-git clone https://github.com/Talatberke/Schat.git
-cd Schat
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 source .venv/bin/activate
@@ -92,52 +59,66 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Tek dosya (.exe) derleme
+Gereksinim: Python 3.10+ (`requirements.txt` içinde `Pillow` da bulunur — fotoğraf önizlemeleri için)
+
+## .exe / tek dosya derleme
+
 ```bash
-build_exe.bat                                  # Windows → dist\SecretChat.exe
-chmod +x build_exe.sh && ./build_exe.sh        # Linux/macOS → dist/SecretChat
+# Windows
+build_exe.bat          # → dist\SecretChat.exe
+
+# Linux / macOS
+chmod +x build_exe.sh && ./build_exe.sh   # → dist/SecretChat
 ```
+
+Çıkan tek dosyayı herkese dağıtabilirsiniz; karşı taraf Python kurmadan çift tıklar.
+
+## Kullanım
+
+1. **Oda Kur** → ekranda oda kodu görünür → "📋 Kopyala" ile paylaş (telefon/mesaj ile).
+2. Karşı taraf: takma ad + kodu yapıştır → **Katıl**.
+3. (Önerilir) UI'daki 6 haneli **doğrulama kodunu** karşı tarafla telefonla karşılaştırın.
+4. "Geçmişi Kaydet" işaretlenirse şifresi çözülmüş metin seçtiğiniz dosyaya yazılır;
+   işaretli değilse her şey RAM'de kalır, kapanınca silinir.
 
 ## Testler
 
 ```bash
-python -m pytest tests -q              # hepsi (ağ testleri dahil)
-SKIP_NET=1 python -m pytest tests -q   # yalnızca çevrimdışı testler
+python -m pytest tests -q            # tamamı (ağ testi dahil, ~1 dk)
+SKIP_NET=1 python -m pytest tests -q # yalnızca çevrimdışı birim testler
 ```
-Arayüz testleri Tkinter gerektirir.
 
 ## Proje yapısı
 
 ```
-main.py                    # giriş noktası
+main.py                  # giriş noktası
 secretchat/
-  config.py                # sabitler: broker, kod uzunluğu, limitler, honeypot ayarları
-  crypto.py                # X25519, HKDF, AES-GCM, ECIES, Ed25519, SAS
-  messages.py              # protokol zarfları + doğrulama/temizleme
-  signaling.py             # TLS'li MQTT kanalı, broker yedekleme
-  room.py                  # Host/Client mantığı, el sıkışma, grup anahtarı dağıtımı
-  security.py              # token bucket hız sınırlayıcı
-  honeypot.py              # tuzak odalar, kara liste, alarm günlüğü
-  storage.py               # RAM modu / isteğe bağlı dosya kaydı
-  stun.py, p2p.py          # STUN + UDP delik açma (deneysel, henüz ana yol değil)
-  theme.py, components.py  # "Cyber-Incognito" teması (bkz. THEME.md)
-  ui.py                    # Tkinter arayüzü
-tests/                     # birim + entegrasyon testleri
-tools/                     # hata ayıklama / ekran görüntüsü araçları
-docs/                      # ekran görüntüleri
+  config.py              # sabitler (broker, kod uzunluğu, zaman aşımları, medya limitleri)
+  crypto.py              # X25519, HKDF, AES-GCM, ECIES, Ed25519, SAS
+  messages.py            # tel protokolü (JSON zarfları: chat/image/edit/delete)
+  signaling.py           # MQTT/TLS kanal + kuyruklu dağıtım
+  stun.py                # STUN istemcisi (P2P dış adres keşfi)
+  p2p.py                 # UDP hole-punching taşıma katmanı
+  room.py                # Host/Client oturum mantığı, grup anahtarı dağıtımı
+  storage.py             # RAM modu / dosya kaydı
+  theme.py               # açık/koyu palet + tema/font kalıcılığı
+  fonts.py               # Google Fonts indirme + sisteme font tanıtma
+  media.py               # fotoğraf doğrulama/yeniden boyutlandırma/base64
+  emoji_picker.py        # kategorili emoji seçici
+  nicknames.py           # otomatik gizli rumuz üretimi
+  ui.py                  # Tkinter GUI
+tests/                   # birim + entegrasyon + responsive testleri
+tools/debug_handshake.py # el sıkışma izleme aracı
 ```
 
-## Bilinen sınırlar (dürüst liste)
+## Sınırlar ve notlar
 
-- **Oda kodu tek giriş sırrıdır.** 5 haneli kod kısa ve broker topic'inde görünür; kodu bilen
-  katılmayı deneyebilir. Hassas odalarda **SAS kodunu mutlaka karşılaştırın**.
-- **Meta veri görünür:** broker mesajı okuyamaz ama zamanlamayı, boyutu ve topic'i görür.
-  Daha fazla gizlilik için kendi broker'ınızı kurup `config.py` → `DEFAULT_BROKER` değerini değiştirin.
-- **Anahtar rotasyonu yok:** geçici anahtarlar oturum bitince silinir ama Double Ratchet gibi
-  mesaj-bazlı ileri gizlilik yoktur. X25519 kuantum-sonrası dayanıklı değildir.
-- **Honeypot sınırı:** broker istemci IP'sini göstermediğinden kara liste IP'ye değil oturum
-  kimliğine dayanır; saldırgan yeni kimlikle tekrar deneyebilir.
-- **P2P katmanı** (STUN/UDP) temel olarak mevcuttur; şu an trafik TLS'li broker üzerinden akar.
-- Herkese açık broker'lar kesinti yapabilir veya hız sınırı uygulayabilir.
-
-
+- **Post-quantum değil**: X25519 kuantum bilgisayarlara karşı değildir (ulusal ölçekte
+  tehdit değildir, ama not edilmeli).
+- **Mesaj ileri gizliliği (PFS)**: geçici anahtarlar oturum sonunda RAM'den silinir; ancak
+  anahtar rotasyonu yoktur (çift ratchet değildir).
+- Herkese açık MQTT broker'lar kullanılır; broker trafiği göremez ama **meta veriyi**
+  (zamanlama, boyut, topic) görür. Tam meta-gizlilik için kendi broker'ınızı işletin
+  (`config.py` → `DEFAULT_BROKER`).
+- P2P katmanı (STUN/hole-punch) mevcuttur; iletişim halihazırda TLS'li relay üzerinden
+  yürür, P2P düşük gecikme isteyenler için temeldir.
